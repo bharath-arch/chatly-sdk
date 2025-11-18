@@ -1,0 +1,37 @@
+{
+  "name": "chatly-sdk",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsup src/index.ts --dts --format esm",
+    "start": "ts-node src/index.ts",
+    "test": "ts-node test/crypto.test.ts"
+  },
+
+  "publishConfig": {
+    "access": "public"
+  },
+
+  "keywords": [
+    "chat",
+    "sdk",
+    "e2e",
+    "encryption",
+    "messaging",
+    "whatsapp"
+  ],
+  "author": "",
+  "license": "ISC",
+  "description": "Production-ready end-to-end encrypted chat SDK with WhatsApp-style features",
+  "dependencies": {
+    "buffer": "^6.0.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "ts-node": "^10.9.2",
+    "tsup": "^8.0.0",
+    "typescript": "^5.9.3"
+  }
+}
