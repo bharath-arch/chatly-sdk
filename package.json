@@ -1,6 +1,6 @@
 {
   "name": "chatly-sdk",
-  "version": "0.0.1",
+  "version": "0.0.5",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -27,7 +27,7 @@
     "whatsapp"
   ],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "description": "Production-ready end-to-end encrypted chat SDK with WhatsApp-style features",
   "dependencies": {
     "buffer": "^6.0.3"
