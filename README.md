@@ -1,6 +1,6 @@
 # chatly-sdk
 
-Production-ready end-to-end encrypted chat SDK with WhatsApp-style features.
+Work In progress end-to-end encrypted chat SDK with WhatsApp-style features.
 
 ## Features
 
