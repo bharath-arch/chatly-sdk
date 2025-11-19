@@ -1,5 +1,7 @@
 # chatly-sdk
 
+You can find the sample project repository here: [Chatly SDK Sample Project](https://github.com/bharath-arch/chatly-sdk_Sample.git)
+
 Work In progress end-to-end encrypted chat SDK with WhatsApp-style features.
 
 ## Features
