@@ -1,0 +1,13 @@
+{
+  "name": "chatly-sdk-basic-chat-example",
+  "version": "1.0.0",
+  "description": "Basic 1:1 chat example using Chatly SDK",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "chatly-sdk": "^0.0.5"
+  }
+}

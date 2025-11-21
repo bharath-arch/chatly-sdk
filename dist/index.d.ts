@@ -1,3 +1,5 @@
+import { EventEmitter } from 'events';
+
 interface User {
     id: string;
     username: string;
@@ -9,7 +11,55 @@ interface StoredUser extends User {
     createdAt: number;
 }
 
-type MessageType = "text" | "system";
+/**
+ * Media types supported by the SDK
+ */
+declare enum MediaType {
+    IMAGE = "image",
+    AUDIO = "audio",
+    VIDEO = "video",
+    DOCUMENT = "document"
+}
+/**
+ * Media metadata
+ */
+interface MediaMetadata {
+    filename: string;
+    mimeType: string;
+    size: number;
+    width?: number;
+    height?: number;
+    duration?: number;
+    thumbnail?: string;
+}
+/**
+ * Media attachment
+ */
+interface MediaAttachment {
+    type: MediaType;
+    data: string;
+    metadata: MediaMetadata;
+}
+/**
+ * Supported MIME types
+ */
+declare const SUPPORTED_MIME_TYPES: {
+    image: string[];
+    audio: string[];
+    video: string[];
+    document: string[];
+};
+/**
+ * File size limits (in bytes)
+ */
+declare const FILE_SIZE_LIMITS: {
+    image: number;
+    audio: number;
+    video: number;
+    document: number;
+};
+
+type MessageType = "text" | "media" | "system";
 interface Message {
     id: string;
     senderId: string;
@@ -19,6 +69,7 @@ interface Message {
     iv: string;
     timestamp: number;
     type: MessageType;
+    media?: MediaAttachment;
 }
 
 interface Group {
@@ -45,10 +96,99 @@ interface GroupStoreAdapter {
     list(): Promise<Group[]>;
 }
 
+/**
+ * SDK Configuration Constants
+ */
+declare const SUPPORTED_CURVE = "prime256v1";
+declare const ALGORITHM = "aes-256-gcm";
+declare const IV_LENGTH = 12;
+declare const SALT_LENGTH = 16;
+declare const KEY_LENGTH = 32;
+declare const TAG_LENGTH = 16;
+declare const PBKDF2_ITERATIONS = 100000;
+declare const USERNAME_MIN_LENGTH = 3;
+declare const USERNAME_MAX_LENGTH = 20;
+declare const MESSAGE_MAX_LENGTH = 10000;
+declare const GROUP_NAME_MAX_LENGTH = 100;
+declare const GROUP_MIN_MEMBERS = 2;
+declare const GROUP_MAX_MEMBERS = 256;
+declare const RECONNECT_MAX_ATTEMPTS = 5;
+declare const RECONNECT_BASE_DELAY = 1000;
+declare const RECONNECT_MAX_DELAY = 30000;
+declare const HEARTBEAT_INTERVAL = 30000;
+declare const CONNECTION_TIMEOUT = 10000;
+declare const MAX_QUEUE_SIZE = 1000;
+declare const MESSAGE_RETRY_ATTEMPTS = 3;
+declare const MESSAGE_RETRY_DELAY = 2000;
+declare const EVENTS: {
+    readonly MESSAGE_SENT: "message:sent";
+    readonly MESSAGE_RECEIVED: "message:received";
+    readonly MESSAGE_FAILED: "message:failed";
+    readonly CONNECTION_STATE_CHANGED: "connection:state";
+    readonly SESSION_CREATED: "session:created";
+    readonly GROUP_CREATED: "group:created";
+    readonly ERROR: "error";
+    readonly USER_CREATED: "user:created";
+};
+declare enum ConnectionState {
+    DISCONNECTED = "disconnected",
+    CONNECTING = "connecting",
+    CONNECTED = "connected",
+    RECONNECTING = "reconnecting",
+    FAILED = "failed"
+}
+declare enum MessageStatus {
+    PENDING = "pending",
+    SENT = "sent",
+    DELIVERED = "delivered",
+    FAILED = "failed"
+}
+
+/**
+ * Transport adapter interface for network communication
+ */
 interface TransportAdapter {
+    /**
+     * Connect to the transport
+     * @param userId - User ID to connect as
+     */
     connect(userId: string): Promise<void>;
+    /**
+     * Disconnect from the transport
+     */
+    disconnect(): Promise<void>;
+    /**
+     * Reconnect to the transport
+     */
+    reconnect(): Promise<void>;
+    /**
+     * Send a message
+     * @param message - Message to send
+     */
     send(message: Message): Promise<void>;
+    /**
+     * Register a message handler
+     * @param handler - Function to call when a message is received
+     */
     onMessage(handler: (message: Message) => void): void;
+    /**
+     * Register a connection state change handler
+     * @param handler - Function to call when connection state changes
+     */
+    onConnectionStateChange?(handler: (state: ConnectionState) => void): void;
+    /**
+     * Register an error handler
+     * @param handler - Function to call when an error occurs
+     */
+    onError?(handler: (error: Error) => void): void;
+    /**
+     * Get the current connection state
+     */
+    getConnectionState(): ConnectionState;
+    /**
+     * Check if transport is connected
+     */
+    isConnected(): boolean;
 }
 
 declare class ChatSession {
@@ -72,9 +212,20 @@ declare class ChatSession {
      */
     encrypt(plaintext: string, senderId: string): Promise<Message>;
     /**
+     * Encrypt a media message for this session
+     */
+    encryptMedia(plaintext: string, media: MediaAttachment, senderId: string): Promise<Message>;
+    /**
      * Decrypt a message in this session
      */
     decrypt(message: Message, user: User): Promise<string>;
+    /**
+     * Decrypt a media message in this session
+     */
+    decryptMedia(message: Message, user: User): Promise<{
+        text: string;
+        media: MediaAttachment;
+    }>;
 }
 
 declare class GroupSession {
@@ -90,10 +241,56 @@ declare class GroupSession {
      */
     encrypt(plaintext: string, senderId: string): Promise<Message>;
     /**
+     * Encrypt a media message for this group
+     */
+    encryptMedia(plaintext: string, media: MediaAttachment, senderId: string): Promise<Message>;
+    /**
      * Decrypt a message in this group
      */
     decrypt(message: Message): Promise<string>;
+    /**
+     * Decrypt a media message in this group
+     */
+    decryptMedia(message: Message): Promise<{
+        text: string;
+        media: MediaAttachment;
+    }>;
 }
+
+/**
+ * Log levels
+ */
+declare enum LogLevel {
+    DEBUG = 0,
+    INFO = 1,
+    WARN = 2,
+    ERROR = 3,
+    NONE = 4
+}
+/**
+ * Logger configuration
+ */
+interface LoggerConfig {
+    level: LogLevel;
+    prefix?: string;
+    timestamp?: boolean;
+}
+/**
+ * Simple structured logger
+ */
+declare class Logger {
+    private config;
+    constructor(config?: Partial<LoggerConfig>);
+    private shouldLog;
+    private formatMessage;
+    debug(message: string, data?: unknown): void;
+    info(message: string, data?: unknown): void;
+    warn(message: string, data?: unknown): void;
+    error(message: string, error?: Error | unknown): void;
+    setLevel(level: LogLevel): void;
+    getLevel(): LogLevel;
+}
+declare const logger: Logger;
 
 declare class InMemoryUserStore implements UserStoreAdapter {
     private users;
@@ -117,28 +314,201 @@ declare class InMemoryGroupStore implements GroupStoreAdapter {
     list(): Promise<Group[]>;
 }
 
-type MessageHandler = (message: Message) => void;
+/**
+ * In-memory transport for testing (no actual network communication)
+ */
 declare class InMemoryTransport implements TransportAdapter {
-    private handler?;
-    private connected;
-    connect(_userId: string): Promise<void>;
+    private messageHandler;
+    private connectionState;
+    private stateHandler;
+    private errorHandler;
+    connect(userId: string): Promise<void>;
+    disconnect(): Promise<void>;
+    reconnect(): Promise<void>;
     send(message: Message): Promise<void>;
-    onMessage(handler: MessageHandler): void;
+    onMessage(handler: (message: Message) => void): void;
+    onConnectionStateChange(handler: (state: ConnectionState) => void): void;
+    onError(handler: (error: Error) => void): void;
+    getConnectionState(): ConnectionState;
+    isConnected(): boolean;
+    simulateReceive(message: Message): void;
+    simulateError(error: Error): void;
 }
+
+declare class WebSocketClient implements TransportAdapter {
+    private ws;
+    private url;
+    private messageHandler;
+    private stateHandler;
+    private errorHandler;
+    private connectionState;
+    private reconnectAttempts;
+    private reconnectTimer;
+    private heartbeatTimer;
+    private currentUserId;
+    private shouldReconnect;
+    constructor(url: string);
+    connect(userId: string): Promise<void>;
+    private doConnect;
+    disconnect(): Promise<void>;
+    reconnect(): Promise<void>;
+    private scheduleReconnect;
+    private clearReconnectTimer;
+    private startHeartbeat;
+    private stopHeartbeat;
+    send(message: Message): Promise<void>;
+    onMessage(handler: (message: Message) => void): void;
+    onConnectionStateChange(handler: (state: ConnectionState) => void): void;
+    onError(handler: (error: Error) => void): void;
+    getConnectionState(): ConnectionState;
+    isConnected(): boolean;
+    private updateState;
+    private handleError;
+}
+
+/**
+ * Base SDK Error class
+ */
+declare class SDKError extends Error {
+    readonly code: string;
+    readonly retryable: boolean;
+    readonly details?: Record<string, unknown> | undefined;
+    constructor(message: string, code: string, retryable?: boolean, details?: Record<string, unknown> | undefined);
+    toJSON(): {
+        name: string;
+        message: string;
+        code: string;
+        retryable: boolean;
+        details: Record<string, unknown> | undefined;
+    };
+}
+/**
+ * Network-related errors (connection, timeout, etc.)
+ */
+declare class NetworkError extends SDKError {
+    constructor(message: string, details?: Record<string, unknown>);
+}
+/**
+ * Encryption/Decryption errors
+ */
+declare class EncryptionError extends SDKError {
+    constructor(message: string, details?: Record<string, unknown>);
+}
+/**
+ * Authentication/Authorization errors
+ */
+declare class AuthError extends SDKError {
+    constructor(message: string, details?: Record<string, unknown>);
+}
+/**
+ * Validation errors (invalid input)
+ */
+declare class ValidationError extends SDKError {
+    constructor(message: string, details?: Record<string, unknown>);
+}
+/**
+ * Storage-related errors
+ */
+declare class StorageError extends SDKError {
+    constructor(message: string, retryable?: boolean, details?: Record<string, unknown>);
+}
+/**
+ * Session-related errors
+ */
+declare class SessionError extends SDKError {
+    constructor(message: string, details?: Record<string, unknown>);
+}
+/**
+ * Transport-related errors
+ */
+declare class TransportError extends SDKError {
+    constructor(message: string, retryable?: boolean, details?: Record<string, unknown>);
+}
+/**
+ * Configuration errors
+ */
+declare class ConfigError extends SDKError {
+    constructor(message: string, details?: Record<string, unknown>);
+}
+
+/**
+ * Validate username format
+ */
+declare function validateUsername(username: string): void;
+/**
+ * Validate message content
+ */
+declare function validateMessage(message: string): void;
+/**
+ * Validate group name
+ */
+declare function validateGroupName(name: string): void;
+/**
+ * Validate group members count
+ */
+declare function validateGroupMembers(memberCount: number): void;
+/**
+ * Validate user ID format
+ */
+declare function validateUserId(userId: string): void;
+
+/**
+ * Convert File or Blob to base64 string
+ */
+declare function encodeFileToBase64(file: File | Blob): Promise<string>;
+/**
+ * Convert base64 string to Blob
+ */
+declare function decodeBase64ToBlob(base64: string, mimeType: string): Blob;
+/**
+ * Detect media type from MIME type
+ */
+declare function getMediaType(mimeType: string): MediaType;
+/**
+ * Validate media file
+ */
+declare function validateMediaFile(file: File | Blob, filename?: string): void;
+/**
+ * Create media metadata from file
+ */
+declare function createMediaMetadata(file: File | Blob, filename?: string): Promise<MediaMetadata>;
+/**
+ * Create media attachment from file
+ */
+declare function createMediaAttachment(file: File | Blob, filename?: string): Promise<MediaAttachment>;
+/**
+ * Format file size for display
+ */
+declare function formatFileSize(bytes: number): string;
 
 interface ChatSDKConfig {
     userStore: UserStoreAdapter;
     messageStore: MessageStoreAdapter;
     groupStore: GroupStoreAdapter;
     transport?: TransportAdapter;
+    logLevel?: LogLevel;
 }
 /**
  * Main ChatSDK class - production-ready WhatsApp-style chat SDK
+ * Extends EventEmitter to provide event-driven architecture
+ *
+ * Events:
+ * - message:sent - Emitted when a message is sent
+ * - message:received - Emitted when a message is received
+ * - message:failed - Emitted when a message fails to send
+ * - connection:state - Emitted when connection state changes
+ * - session:created - Emitted when a session is created
+ * - group:created - Emitted when a group is created
+ * - user:created - Emitted when a user is created
+ * - error - Emitted when an error occurs
  */
-declare class ChatSDK {
+declare class ChatSDK extends EventEmitter {
     private config;
     private currentUser;
+    private messageQueue;
     constructor(config: ChatSDKConfig);
+    private setupTransportHandlers;
+    private processMessageQueue;
     /**
      * Create a new user with generated identity keys
      */
@@ -150,7 +520,7 @@ declare class ChatSDK {
     /**
      * Set the current active user
      */
-    setCurrentUser(user: User): void;
+    setCurrentUser(user: User): Promise<void>;
     /**
      * Get the current active user
      */
@@ -172,9 +542,20 @@ declare class ChatSDK {
      */
     sendMessage(session: ChatSession | GroupSession, plaintext: string): Promise<Message>;
     /**
+     * Send a media message in a chat session (1:1 or group)
+     */
+    sendMediaMessage(session: ChatSession | GroupSession, caption: string, media: MediaAttachment): Promise<Message>;
+    /**
      * Decrypt a message
      */
     decryptMessage(message: Message, user: User): Promise<string>;
+    /**
+     * Decrypt a media message
+     */
+    decryptMediaMessage(message: Message, user: User): Promise<{
+        text: string;
+        media: MediaAttachment;
+    }>;
     /**
      * Get messages for a user
      */
@@ -183,6 +564,46 @@ declare class ChatSDK {
      * Get messages for a group
      */
     getMessagesForGroup(groupId: string): Promise<Message[]>;
+    /**
+     * Get the transport adapter
+     */
+    getTransport(): TransportAdapter | undefined;
+    /**
+     * Get all users
+     */
+    listUsers(): Promise<User[]>;
+    /**
+     * Get user by ID
+     */
+    getUserById(userId: string): Promise<User | undefined>;
+    /**
+     * Get all groups
+     */
+    listGroups(): Promise<Group[]>;
+    /**
+     * Get connection state
+     */
+    getConnectionState(): ConnectionState;
+    /**
+     * Check if connected
+     */
+    isConnected(): boolean;
+    /**
+     * Disconnect transport
+     */
+    disconnect(): Promise<void>;
+    /**
+     * Reconnect transport
+     */
+    reconnect(): Promise<void>;
+    /**
+     * Get message queue status
+     */
+    getQueueStatus(): {
+        size: number;
+        pending: number;
+        retryable: number;
+    };
 }
 
-export { ChatSDK, type ChatSDKConfig, ChatSession, type Group, GroupSession, type GroupStoreAdapter, InMemoryGroupStore, InMemoryMessageStore, InMemoryTransport, InMemoryUserStore, type Message, type MessageStoreAdapter, type MessageType, type StoredUser, type TransportAdapter, type User, type UserStoreAdapter };
+export { ALGORITHM, AuthError, CONNECTION_TIMEOUT, ChatSDK, type ChatSDKConfig, ChatSession, ConfigError, ConnectionState, EVENTS, EncryptionError, FILE_SIZE_LIMITS, GROUP_MAX_MEMBERS, GROUP_MIN_MEMBERS, GROUP_NAME_MAX_LENGTH, type Group, GroupSession, type GroupStoreAdapter, HEARTBEAT_INTERVAL, IV_LENGTH, InMemoryGroupStore, InMemoryMessageStore, InMemoryTransport, InMemoryUserStore, KEY_LENGTH, LogLevel, Logger, type LoggerConfig, MAX_QUEUE_SIZE, MESSAGE_MAX_LENGTH, MESSAGE_RETRY_ATTEMPTS, MESSAGE_RETRY_DELAY, type MediaAttachment, type MediaMetadata, MediaType, type Message, MessageStatus, type MessageStoreAdapter, type MessageType, NetworkError, PBKDF2_ITERATIONS, RECONNECT_BASE_DELAY, RECONNECT_MAX_ATTEMPTS, RECONNECT_MAX_DELAY, SALT_LENGTH, SDKError, SUPPORTED_CURVE, SUPPORTED_MIME_TYPES, SessionError, StorageError, type StoredUser, TAG_LENGTH, type TransportAdapter, TransportError, USERNAME_MAX_LENGTH, USERNAME_MIN_LENGTH, type User, type UserStoreAdapter, ValidationError, WebSocketClient, createMediaAttachment, createMediaMetadata, decodeBase64ToBlob, encodeFileToBase64, formatFileSize, getMediaType, logger, validateGroupMembers, validateGroupName, validateMediaFile, validateMessage, validateUserId, validateUsername };

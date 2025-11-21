@@ -1,45 +1,132 @@
+import { encryptMessage, decryptMessage, deriveSharedSecret } from '../src/crypto/e2e';
+import { generateIdentityKeyPair } from '../src/crypto/keys';
 
-import assert from 'assert';
-import { KeyManager } from '../src/crypto/keyManager';
-import { encrypt } from '../src/crypto/encrypt';
-import { decrypt } from '../src/crypto/decrypt';
+describe('End-to-End Encryption', () => {
+  describe('Key Generation', () => {
+    it('should generate a valid key pair', () => {
+      const keyPair = generateIdentityKeyPair();
+      
+      expect(keyPair).toHaveProperty('publicKey');
+      expect(keyPair).toHaveProperty('privateKey');
+      expect(typeof keyPair.publicKey).toBe('string');
+      expect(typeof keyPair.privateKey).toBe('string');
+      expect(keyPair.publicKey.length).toBeGreaterThan(0);
+      expect(keyPair.privateKey.length).toBeGreaterThan(0);
+    });
 
-async function testCrypto() {
-  console.log('Running crypto tests...');
+    it('should generate unique key pairs', () => {
+      const keyPair1 = generateIdentityKeyPair();
+      const keyPair2 = generateIdentityKeyPair();
+      
+      expect(keyPair1.publicKey).not.toBe(keyPair2.publicKey);
+      expect(keyPair1.privateKey).not.toBe(keyPair2.privateKey);
+    });
+  });
 
-  // Test KeyManager
-  const keyManager1 = new KeyManager();
-  const keyManager2 = new KeyManager();
+  describe('Shared Secret Derivation', () => {
+    it('should derive the same shared secret for both parties', async () => {
+      const aliceKeys = generateIdentityKeyPair();
+      const bobKeys = generateIdentityKeyPair();
+      
+      const aliceShared = await deriveSharedSecret(aliceKeys.privateKey, bobKeys.publicKey);
+      const bobShared = await deriveSharedSecret(bobKeys.privateKey, aliceKeys.publicKey);
+      
+      expect(aliceShared).toBe(bobShared);
+    });
 
-  await keyManager1.generateKeys();
-  await keyManager2.generateKeys();
+    it('should derive different secrets for different key pairs', async () => {
+      const aliceKeys = generateIdentityKeyPair();
+      const bobKeys = generateIdentityKeyPair();
+      const charlieKeys = generateIdentityKeyPair();
+      
+      const aliceBobSecret = await deriveSharedSecret(aliceKeys.privateKey, bobKeys.publicKey);
+      const aliceCharlieSecret = await deriveSharedSecret(aliceKeys.privateKey, charlieKeys.publicKey);
+      
+      expect(aliceBobSecret).not.toBe(aliceCharlieSecret);
+    });
+  });
 
-  const publicKey1 = keyManager1.getPublicKey();
-  const privateKey1 = keyManager1.getPrivateKey();
-  const publicKey2 = keyManager2.getPublicKey();
-  const privateKey2 = keyManager2.getPrivateKey();
+  describe('Message Encryption and Decryption', () => {
+    it('should encrypt and decrypt a message correctly', async () => {
+      const aliceKeys = generateIdentityKeyPair();
+      const bobKeys = generateIdentityKeyPair();
+      const sharedSecret = await deriveSharedSecret(aliceKeys.privateKey, bobKeys.publicKey);
+      
+      const plaintext = 'Hello, Bob!';
+      const encrypted = await encryptMessage(plaintext, sharedSecret);
+      
+      expect(encrypted).toHaveProperty('ciphertext');
+      expect(encrypted).toHaveProperty('iv');
+      expect(typeof encrypted.ciphertext).toBe('string');
+      expect(typeof encrypted.iv).toBe('string');
+      
+      const decrypted = await decryptMessage(encrypted.ciphertext, encrypted.iv, sharedSecret);
+      expect(decrypted).toBe(plaintext);
+    });
 
-  assert(publicKey1, 'publicKey1 should not be null');
-  assert(privateKey1, 'privateKey1 should not be null');
-  assert(publicKey2, 'publicKey2 should not be null');
-  assert(privateKey2, 'privateKey2 should not be null');
+    it('should produce different ciphertexts for the same plaintext', async () => {
+      const aliceKeys = generateIdentityKeyPair();
+      const bobKeys = generateIdentityKeyPair();
+      const sharedSecret = await deriveSharedSecret(aliceKeys.privateKey, bobKeys.publicKey);
+      
+      const plaintext = 'Hello, Bob!';
+      const encrypted1 = await encryptMessage(plaintext, sharedSecret);
+      const encrypted2 = await encryptMessage(plaintext, sharedSecret);
+      
+      expect(encrypted1.ciphertext).not.toBe(encrypted2.ciphertext);
+      expect(encrypted1.iv).not.toBe(encrypted2.iv);
+    });
 
-  console.log('KeyManager test passed.');
+    it('should fail to decrypt with wrong shared secret', async () => {
+      const aliceKeys = generateIdentityKeyPair();
+      const bobKeys = generateIdentityKeyPair();
+      const charlieKeys = generateIdentityKeyPair();
+      
+      const aliceBobSecret = await deriveSharedSecret(aliceKeys.privateKey, bobKeys.publicKey);
+      const aliceCharlieSecret = await deriveSharedSecret(aliceKeys.privateKey, charlieKeys.publicKey);
+      
+      const plaintext = 'Secret message';
+      const encrypted = await encryptMessage(plaintext, aliceBobSecret);
+      
+      await expect(
+        decryptMessage(encrypted.ciphertext, encrypted.iv, aliceCharlieSecret)
+      ).rejects.toThrow();
+    });
 
-  // Test encrypt and decrypt
-  const message = 'This is a secret message.';
-  if (publicKey1 && privateKey1 && publicKey2 && privateKey2) {
-    const encryptedMessage = await encrypt(message, publicKey2, privateKey1);
-    const decryptedMessage = await decrypt(encryptedMessage, publicKey1, privateKey2);
+    it('should handle empty messages', async () => {
+      const aliceKeys = generateIdentityKeyPair();
+      const bobKeys = generateIdentityKeyPair();
+      const sharedSecret = await deriveSharedSecret(aliceKeys.privateKey, bobKeys.publicKey);
+      
+      const plaintext = '';
+      const encrypted = await encryptMessage(plaintext, sharedSecret);
+      const decrypted = await decryptMessage(encrypted.ciphertext, encrypted.iv, sharedSecret);
+      
+      expect(decrypted).toBe(plaintext);
+    });
 
-    assert.strictEqual(decryptedMessage, message, 'Decrypted message should match original message.');
-  } else {
-    assert.fail('Keys should not be null');
-  }
+    it('should handle long messages', async () => {
+      const aliceKeys = generateIdentityKeyPair();
+      const bobKeys = generateIdentityKeyPair();
+      const sharedSecret = await deriveSharedSecret(aliceKeys.privateKey, bobKeys.publicKey);
+      
+      const plaintext = 'A'.repeat(10000);
+      const encrypted = await encryptMessage(plaintext, sharedSecret);
+      const decrypted = await decryptMessage(encrypted.ciphertext, encrypted.iv, sharedSecret);
+      
+      expect(decrypted).toBe(plaintext);
+    });
 
-  console.log('Encrypt/decrypt test passed.');
-
-  console.log('All crypto tests passed.');
-}
-
-testCrypto().catch(console.error);
+    it('should handle special characters and emojis', async () => {
+      const aliceKeys = generateIdentityKeyPair();
+      const bobKeys = generateIdentityKeyPair();
+      const sharedSecret = await deriveSharedSecret(aliceKeys.privateKey, bobKeys.publicKey);
+      
+      const plaintext = 'Hello 👋 World! 🌍 Special chars: @#$%^&*()';
+      const encrypted = await encryptMessage(plaintext, sharedSecret);
+      const decrypted = await decryptMessage(encrypted.ciphertext, encrypted.iv, sharedSecret);
+      
+      expect(decrypted).toBe(plaintext);
+    });
+  });
+});

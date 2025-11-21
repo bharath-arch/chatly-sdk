@@ -1,23 +1,23 @@
 {
   "name": "chatly-sdk",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsup src/index.ts --dts --format esm",
     "start": "ts-node src/index.ts",
-    "test": "ts-node test/crypto.test.ts"
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage"
   },
-
   "publishConfig": {
     "access": "public"
   },
   "repository": {
-  "type": "git",
-  "url": "https://github.com/bharath-arch/chatly-sdk.git"
-},
-
+    "type": "git",
+    "url": "https://github.com/bharath-arch/chatly-sdk.git"
+  },
   "keywords": [
     "chat",
     "sdk",
@@ -30,10 +30,14 @@
   "license": "MIT",
   "description": "Production-ready end-to-end encrypted chat SDK with WhatsApp-style features",
   "dependencies": {
-    "buffer": "^6.0.3"
+    "buffer": "^6.0.3",
+    "events": "^3.3.0"
   },
   "devDependencies": {
+    "@types/jest": "^29.5.14",
     "@types/node": "^24.10.1",
+    "jest": "^29.5.0",
+    "ts-jest": "^29.1.0",
     "ts-node": "^10.9.2",
     "tsup": "^8.0.0",
     "typescript": "^5.9.3"

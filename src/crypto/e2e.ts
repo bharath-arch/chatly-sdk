@@ -11,26 +11,6 @@
   const TAG_LENGTH = 16;
   const PBKDF2_ITERATIONS = 100000;
 
-  /**
-   * Derive a shared secret using ECDH key exchange
-   */
-  // export function deriveSharedSecret(local: KeyPair, remotePublicKey: string): Buffer {
-  //   const ecdh = createECDH(SUPPORTED_CURVE);
-  //   ecdh.setPrivateKey(base64ToBuffer(local.privateKey));
-    
-  //   const remotePublicKeyBuffer = base64ToBuffer(remotePublicKey);
-  //   const sharedSecret = ecdh.computeSecret(remotePublicKeyBuffer);
-    
-  //   // Derive a symmetric key from the shared secret using PBKDF2
-  //   // Use a deterministic salt based on both public keys for consistency
-  //   const salt = Buffer.concat([
-  //     base64ToBuffer(local.publicKey),
-  //     base64ToBuffer(remotePublicKey)
-  //   ]).slice(0, SALT_LENGTH);
-  //   const derivedKey = pbkdf2Sync(sharedSecret, salt, PBKDF2_ITERATIONS, KEY_LENGTH, "sha256");
-    
-  //   return derivedKey;
-  // }
 
   export function deriveSharedSecret(local: KeyPair, remotePublicKey: string): Buffer {
     const ecdh = createECDH(SUPPORTED_CURVE);

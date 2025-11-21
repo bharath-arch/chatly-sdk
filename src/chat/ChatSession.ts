@@ -1,5 +1,6 @@
 import type { User } from "../models/user.js";
 import type { Message } from "../models/message.js";
+import type { MediaAttachment } from "../models/mediaTypes.js";
 import { deriveSharedSecret, encryptMessage, decryptMessage } from "../crypto/e2e.js";
 import type { KeyPair } from "../crypto/keys.js";
 import { generateUUID } from "../crypto/uuid.js";
@@ -69,6 +70,49 @@ export class ChatSession {
   }
 
   /**
+   * Encrypt a media message for this session
+   */
+  async encryptMedia(
+    plaintext: string,
+    media: MediaAttachment,
+    senderId: string
+  ): Promise<Message> {
+    if (!this.sharedSecret) {
+      await this.initialize();
+    }
+
+    if (!this.sharedSecret) {
+      throw new Error("Failed to initialize session");
+    }
+
+    // Encrypt the message text (could be caption)
+    const { ciphertext, iv } = encryptMessage(plaintext, this.sharedSecret);
+
+    // Encrypt the media data
+    const { ciphertext: encryptedMediaData } = encryptMessage(
+      media.data,
+      this.sharedSecret
+    );
+
+    // Create encrypted media attachment
+    const encryptedMedia: MediaAttachment = {
+      ...media,
+      data: encryptedMediaData,
+    };
+
+    return {
+      id: generateUUID(),
+      senderId,
+      receiverId: senderId === this.userA.id ? this.userB.id : this.userA.id,
+      ciphertext,
+      iv,
+      timestamp: Date.now(),
+      type: "media",
+      media: encryptedMedia,
+    };
+  }
+
+  /**
    * Decrypt a message in this session
    */
   async decrypt(message: Message, user: User): Promise<string> {
@@ -84,5 +128,42 @@ export class ChatSession {
     }
 
     return decryptMessage(message.ciphertext, message.iv, this.sharedSecret);
+  }
+
+  /**
+   * Decrypt a media message in this session
+   */
+  async decryptMedia(message: Message, user: User): Promise<{ text: string; media: MediaAttachment }> {
+    if (!message.media) {
+      throw new Error("Message does not contain media");
+    }
+
+    // Re-initialize if needed
+    if (!this.sharedSecret || 
+        (user.id !== this.userA.id && user.id !== this.userB.id)) {
+      await this.initializeForUser(user);
+    }
+
+    if (!this.sharedSecret) {
+      throw new Error("Failed to initialize session");
+    }
+
+    // Decrypt the message text
+    const text = decryptMessage(message.ciphertext, message.iv, this.sharedSecret);
+
+    // Decrypt the media data
+    const decryptedMediaData = decryptMessage(
+      message.media.data,
+      message.iv,
+      this.sharedSecret
+    );
+
+    // Create decrypted media attachment
+    const decryptedMedia: MediaAttachment = {
+      ...message.media,
+      data: decryptedMediaData,
+    };
+
+    return { text, media: decryptedMedia };
   }
 }

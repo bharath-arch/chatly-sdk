@@ -1,0 +1,14 @@
+{
+  "name": "chatly-sdk-postgresql-integration",
+  "version": "1.0.0",
+  "description": "PostgreSQL database integration example for Chatly SDK",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "chatly-sdk": "^0.0.5",
+    "pg": "^8.11.3"
+  }
+}

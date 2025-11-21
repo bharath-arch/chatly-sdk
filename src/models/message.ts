@@ -1,4 +1,6 @@
-export type MessageType = "text" | "system";
+import type { MediaAttachment } from './mediaTypes.js';
+
+export type MessageType = "text" | "media" | "system";
 
 export interface Message {
   id: string;
@@ -9,5 +11,6 @@ export interface Message {
   iv: string;
   timestamp: number;
   type: MessageType;
+  media?: MediaAttachment; // Optional media attachment
 }
 

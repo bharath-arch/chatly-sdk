@@ -1,0 +1,13 @@
+{
+  "name": "chatly-sdk-offline-messaging-example",
+  "version": "1.0.0",
+  "description": "Offline/asynchronous messaging example using Chatly SDK",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "chatly-sdk": "^0.0.5"
+  }
+}
