@@ -4,7 +4,7 @@ This document outlines the major improvements and production-ready features that
 
 ---
 
-## 🎯 Production-Ready Features
+## 🎯 Production-Ready Features (Beta)
 
 ### 1. Message Queue with Automatic Retry
 
