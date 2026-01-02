@@ -26,8 +26,12 @@ export interface MediaMetadata {
  */
 export interface MediaAttachment {
   type: MediaType;
-  data: string; // Base64 encoded file data
+  data?: string | undefined; // Base64 encoded file data (optional if stored remotely)
+  iv?: string | undefined;   // Separate IV for media data encryption
   metadata: MediaMetadata;
+  storage?: 'local' | 's3' | undefined; // Storage provider used
+  storageKey?: string | undefined;      // Key/path in the storage provider
+  url?: string | undefined;             // Public URL if available
 }
 
 /**

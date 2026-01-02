@@ -1,5 +1,5 @@
-import { encryptMessage, decryptMessage, deriveSharedSecret } from '../src/crypto/e2e';
-import { generateIdentityKeyPair } from '../src/crypto/keys';
+import { encryptMessage, decryptMessage, deriveSharedSecret } from '../src/crypto/e2e.js';
+import { generateIdentityKeyPair } from '../src/crypto/keys.js';
 
 describe('End-to-End Encryption', () => {
   describe('Key Generation', () => {
@@ -28,10 +28,10 @@ describe('End-to-End Encryption', () => {
       const aliceKeys = generateIdentityKeyPair();
       const bobKeys = generateIdentityKeyPair();
       
-      const aliceShared = await deriveSharedSecret(aliceKeys.privateKey, bobKeys.publicKey);
-      const bobShared = await deriveSharedSecret(bobKeys.privateKey, aliceKeys.publicKey);
+      const aliceShared = await deriveSharedSecret(aliceKeys, bobKeys.publicKey);
+      const bobShared = await deriveSharedSecret(bobKeys, aliceKeys.publicKey);
       
-      expect(aliceShared).toBe(bobShared);
+      expect(aliceShared).toEqual(bobShared);
     });
 
     it('should derive different secrets for different key pairs', async () => {
@@ -39,10 +39,10 @@ describe('End-to-End Encryption', () => {
       const bobKeys = generateIdentityKeyPair();
       const charlieKeys = generateIdentityKeyPair();
       
-      const aliceBobSecret = await deriveSharedSecret(aliceKeys.privateKey, bobKeys.publicKey);
-      const aliceCharlieSecret = await deriveSharedSecret(aliceKeys.privateKey, charlieKeys.publicKey);
+      const aliceBobSecret = await deriveSharedSecret(aliceKeys, bobKeys.publicKey);
+      const aliceCharlieSecret = await deriveSharedSecret(aliceKeys, charlieKeys.publicKey);
       
-      expect(aliceBobSecret).not.toBe(aliceCharlieSecret);
+      expect(aliceBobSecret).not.toEqual(aliceCharlieSecret);
     });
   });
 
@@ -50,7 +50,7 @@ describe('End-to-End Encryption', () => {
     it('should encrypt and decrypt a message correctly', async () => {
       const aliceKeys = generateIdentityKeyPair();
       const bobKeys = generateIdentityKeyPair();
-      const sharedSecret = await deriveSharedSecret(aliceKeys.privateKey, bobKeys.publicKey);
+      const sharedSecret = await deriveSharedSecret(aliceKeys, bobKeys.publicKey);
       
       const plaintext = 'Hello, Bob!';
       const encrypted = await encryptMessage(plaintext, sharedSecret);
@@ -67,7 +67,7 @@ describe('End-to-End Encryption', () => {
     it('should produce different ciphertexts for the same plaintext', async () => {
       const aliceKeys = generateIdentityKeyPair();
       const bobKeys = generateIdentityKeyPair();
-      const sharedSecret = await deriveSharedSecret(aliceKeys.privateKey, bobKeys.publicKey);
+      const sharedSecret = await deriveSharedSecret(aliceKeys, bobKeys.publicKey);
       
       const plaintext = 'Hello, Bob!';
       const encrypted1 = await encryptMessage(plaintext, sharedSecret);
@@ -82,21 +82,21 @@ describe('End-to-End Encryption', () => {
       const bobKeys = generateIdentityKeyPair();
       const charlieKeys = generateIdentityKeyPair();
       
-      const aliceBobSecret = await deriveSharedSecret(aliceKeys.privateKey, bobKeys.publicKey);
-      const aliceCharlieSecret = await deriveSharedSecret(aliceKeys.privateKey, charlieKeys.publicKey);
+      const aliceBobSecret = await deriveSharedSecret(aliceKeys, bobKeys.publicKey);
+      const aliceCharlieSecret = await deriveSharedSecret(aliceKeys, charlieKeys.publicKey);
       
       const plaintext = 'Secret message';
       const encrypted = await encryptMessage(plaintext, aliceBobSecret);
       
-      await expect(
+      expect(() =>
         decryptMessage(encrypted.ciphertext, encrypted.iv, aliceCharlieSecret)
-      ).rejects.toThrow();
+      ).toThrow(/Unsupported state or unable to authenticate data/);
     });
 
     it('should handle empty messages', async () => {
       const aliceKeys = generateIdentityKeyPair();
       const bobKeys = generateIdentityKeyPair();
-      const sharedSecret = await deriveSharedSecret(aliceKeys.privateKey, bobKeys.publicKey);
+      const sharedSecret = await deriveSharedSecret(aliceKeys, bobKeys.publicKey);
       
       const plaintext = '';
       const encrypted = await encryptMessage(plaintext, sharedSecret);
@@ -108,7 +108,7 @@ describe('End-to-End Encryption', () => {
     it('should handle long messages', async () => {
       const aliceKeys = generateIdentityKeyPair();
       const bobKeys = generateIdentityKeyPair();
-      const sharedSecret = await deriveSharedSecret(aliceKeys.privateKey, bobKeys.publicKey);
+      const sharedSecret = await deriveSharedSecret(aliceKeys, bobKeys.publicKey);
       
       const plaintext = 'A'.repeat(10000);
       const encrypted = await encryptMessage(plaintext, sharedSecret);
@@ -120,7 +120,7 @@ describe('End-to-End Encryption', () => {
     it('should handle special characters and emojis', async () => {
       const aliceKeys = generateIdentityKeyPair();
       const bobKeys = generateIdentityKeyPair();
-      const sharedSecret = await deriveSharedSecret(aliceKeys.privateKey, bobKeys.publicKey);
+      const sharedSecret = await deriveSharedSecret(aliceKeys, bobKeys.publicKey);
       
       const plaintext = 'Hello 👋 World! 🌍 Special chars: @#$%^&*()';
       const encrypted = await encryptMessage(plaintext, sharedSecret);

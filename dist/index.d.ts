@@ -37,8 +37,12 @@ interface MediaMetadata {
  */
 interface MediaAttachment {
     type: MediaType;
-    data: string;
+    data?: string | undefined;
+    iv?: string | undefined;
     metadata: MediaMetadata;
+    storage?: 'local' | 's3' | undefined;
+    storageKey?: string | undefined;
+    url?: string | undefined;
 }
 /**
  * Supported MIME types
@@ -87,8 +91,10 @@ interface UserStoreAdapter {
 }
 interface MessageStoreAdapter {
     create(message: Message): Promise<Message>;
+    findById(id: string): Promise<Message | undefined>;
     listByUser(userId: string): Promise<Message[]>;
     listByGroup(groupId: string): Promise<Message[]>;
+    delete(id: string): Promise<void>;
 }
 interface GroupStoreAdapter {
     create(group: Group): Promise<Group>;
@@ -191,13 +197,43 @@ interface TransportAdapter {
     isConnected(): boolean;
 }
 
+interface StorageUploadResult {
+    storageKey: string;
+    url?: string;
+}
+interface StorageProvider {
+    /**
+     * Name of the storage provider (e.g., 'local', 's3')
+     */
+    readonly name: string;
+    /**
+     * Upload data to storage
+     * @param data Base64 encoded data or Buffer
+     * @param filename Desired filename or path
+     * @param mimeType MIME type of the file
+     */
+    upload(data: string | Buffer, filename: string, mimeType: string): Promise<StorageUploadResult>;
+    /**
+     * Download data from storage
+     * @param storageKey Key/path of the file in storage
+     * @returns Base64 encoded data
+     */
+    download(storageKey: string): Promise<string>;
+    /**
+     * Delete data from storage
+     * @param storageKey Key/path of the file in storage
+     */
+    delete(storageKey: string): Promise<void>;
+}
+
 declare class ChatSession {
     readonly id: string;
     readonly userA: User;
     readonly userB: User;
+    private storageProvider?;
     private sharedSecret;
     private ephemeralKeyPair;
-    constructor(id: string, userA: User, userB: User);
+    constructor(id: string, userA: User, userB: User, storageProvider?: StorageProvider | undefined);
     /**
      * Initialize the session by deriving the shared secret
      * ECDH is commutative, so we can use either user's keys
@@ -219,6 +255,7 @@ declare class ChatSession {
      * Decrypt a message in this session
      */
     decrypt(message: Message, user: User): Promise<string>;
+    private deriveLegacySecret;
     /**
      * Decrypt a media message in this session
      */
@@ -230,8 +267,9 @@ declare class ChatSession {
 
 declare class GroupSession {
     readonly group: Group;
+    private storageProvider?;
     private groupKey;
-    constructor(group: Group);
+    constructor(group: Group, storageProvider?: StorageProvider | undefined);
     /**
      * Initialize the session by deriving the group key
      */
@@ -303,8 +341,10 @@ declare class InMemoryUserStore implements UserStoreAdapter {
 declare class InMemoryMessageStore implements MessageStoreAdapter {
     private messages;
     create(message: Message): Promise<Message>;
+    findById(id: string): Promise<Message | undefined>;
     listByUser(userId: string): Promise<Message[]>;
     listByGroup(groupId: string): Promise<Message[]>;
+    delete(id: string): Promise<void>;
 }
 
 declare class InMemoryGroupStore implements GroupStoreAdapter {
@@ -481,10 +521,40 @@ declare function createMediaAttachment(file: File | Blob, filename?: string): Pr
  */
 declare function formatFileSize(bytes: number): string;
 
+declare class LocalStorageProvider implements StorageProvider {
+    readonly name = "local";
+    private storageDir;
+    constructor(storageDir?: string);
+    upload(data: string | Buffer, filename: string, mimeType: string): Promise<StorageUploadResult>;
+    download(storageKey: string): Promise<string>;
+    delete(storageKey: string): Promise<void>;
+}
+
+interface S3Config {
+    region: string;
+    bucket: string;
+    credentials?: {
+        accessKeyId: string;
+        secretAccessKey: string;
+    };
+    endpoint?: string;
+    forcePathStyle?: boolean;
+}
+declare class S3StorageProvider implements StorageProvider {
+    readonly name = "s3";
+    private client;
+    private bucket;
+    constructor(config: S3Config);
+    upload(data: string | Buffer, filename: string, mimeType: string): Promise<StorageUploadResult>;
+    download(storageKey: string): Promise<string>;
+    delete(storageKey: string): Promise<void>;
+}
+
 interface ChatSDKConfig {
     userStore: UserStoreAdapter;
     messageStore: MessageStoreAdapter;
     groupStore: GroupStoreAdapter;
+    storageProvider?: StorageProvider;
     transport?: TransportAdapter;
     logLevel?: LogLevel;
 }
@@ -606,4 +676,4 @@ declare class ChatSDK extends EventEmitter {
     };
 }
 
-export { ALGORITHM, AuthError, CONNECTION_TIMEOUT, ChatSDK, type ChatSDKConfig, ChatSession, ConfigError, ConnectionState, EVENTS, EncryptionError, FILE_SIZE_LIMITS, GROUP_MAX_MEMBERS, GROUP_MIN_MEMBERS, GROUP_NAME_MAX_LENGTH, type Group, GroupSession, type GroupStoreAdapter, HEARTBEAT_INTERVAL, IV_LENGTH, InMemoryGroupStore, InMemoryMessageStore, InMemoryTransport, InMemoryUserStore, KEY_LENGTH, LogLevel, Logger, type LoggerConfig, MAX_QUEUE_SIZE, MESSAGE_MAX_LENGTH, MESSAGE_RETRY_ATTEMPTS, MESSAGE_RETRY_DELAY, type MediaAttachment, type MediaMetadata, MediaType, type Message, MessageStatus, type MessageStoreAdapter, type MessageType, NetworkError, PBKDF2_ITERATIONS, RECONNECT_BASE_DELAY, RECONNECT_MAX_ATTEMPTS, RECONNECT_MAX_DELAY, SALT_LENGTH, SDKError, SUPPORTED_CURVE, SUPPORTED_MIME_TYPES, SessionError, StorageError, type StoredUser, TAG_LENGTH, type TransportAdapter, TransportError, USERNAME_MAX_LENGTH, USERNAME_MIN_LENGTH, type User, type UserStoreAdapter, ValidationError, WebSocketClient, createMediaAttachment, createMediaMetadata, decodeBase64ToBlob, encodeFileToBase64, formatFileSize, getMediaType, logger, validateGroupMembers, validateGroupName, validateMediaFile, validateMessage, validateUserId, validateUsername };
+export { ALGORITHM, AuthError, CONNECTION_TIMEOUT, ChatSDK, type ChatSDKConfig, ChatSession, ConfigError, ConnectionState, EVENTS, EncryptionError, FILE_SIZE_LIMITS, GROUP_MAX_MEMBERS, GROUP_MIN_MEMBERS, GROUP_NAME_MAX_LENGTH, type Group, GroupSession, type GroupStoreAdapter, HEARTBEAT_INTERVAL, IV_LENGTH, InMemoryGroupStore, InMemoryMessageStore, InMemoryTransport, InMemoryUserStore, KEY_LENGTH, LocalStorageProvider, LogLevel, Logger, type LoggerConfig, MAX_QUEUE_SIZE, MESSAGE_MAX_LENGTH, MESSAGE_RETRY_ATTEMPTS, MESSAGE_RETRY_DELAY, type MediaAttachment, type MediaMetadata, MediaType, type Message, MessageStatus, type MessageStoreAdapter, type MessageType, NetworkError, PBKDF2_ITERATIONS, RECONNECT_BASE_DELAY, RECONNECT_MAX_ATTEMPTS, RECONNECT_MAX_DELAY, type S3Config, S3StorageProvider, SALT_LENGTH, SDKError, SUPPORTED_CURVE, SUPPORTED_MIME_TYPES, SessionError, StorageError, type StorageProvider, type StorageUploadResult, type StoredUser, TAG_LENGTH, type TransportAdapter, TransportError, USERNAME_MAX_LENGTH, USERNAME_MIN_LENGTH, type User, type UserStoreAdapter, ValidationError, WebSocketClient, createMediaAttachment, createMediaMetadata, decodeBase64ToBlob, encodeFileToBase64, formatFileSize, getMediaType, logger, validateGroupMembers, validateGroupName, validateMediaFile, validateMessage, validateUserId, validateUsername };

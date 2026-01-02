@@ -11,8 +11,10 @@ export interface UserStoreAdapter {
 
 export interface MessageStoreAdapter {
   create(message: Message): Promise<Message>;
+  findById(id: string): Promise<Message | undefined>;
   listByUser(userId: string): Promise<Message[]>;
   listByGroup(groupId: string): Promise<Message[]>;
+  delete(id: string): Promise<void>;
 }
 
 export interface GroupStoreAdapter {

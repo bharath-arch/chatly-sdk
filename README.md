@@ -1,6 +1,6 @@
 # 🔐 Chatly SDK
 
-Beta end-to-end encrypted chat SDK with WhatsApp-style features, event-driven architecture, and automatic reconnection.
+Production-ready end-to-end encrypted chat SDK with WhatsApp-style features, event-driven architecture, and automatic reconnection.
 
 You can find the sample project repository here: [Chatly SDK Sample Project](https://github.com/bharath-arch/chatly-sdk-demo.git)
 
@@ -15,6 +15,7 @@ You can find the sample project repository here: [Chatly SDK Sample Project](htt
 - **Per-User Identity Keys** - Unique cryptographic identity
 - **Session-Based Encryption** - Secure 1:1 and group messaging
 - **Input Validation** - Protection against injection attacks
+- **Configurable Media Storage** - Offload encrypted files to S3 or Local storage
 
 ### 💬 Messaging
 - **1:1 Chat** - Secure direct messaging
@@ -184,6 +185,7 @@ const sdk = new ChatSDK({
   userStore: new InMemoryUserStore(),
   messageStore: new InMemoryMessageStore(),
   groupStore: new InMemoryGroupStore(),
+  storageProvider: new LocalStorageProvider('./uploads'), // Optional: S3 or Local
   logLevel: LogLevel.INFO, // Optional: DEBUG, INFO, WARN, ERROR, NONE
 });
 
@@ -379,24 +381,59 @@ console.log('Supported image types:', SUPPORTED_MIME_TYPES.image);
 console.log('Max video size:', FILE_SIZE_LIMITS.video); // 100 MB
 ```
 
+### 📦 Media Storage & Offloading
+
+To prevent database bloat, large media files are automatically offloaded to a storage provider. The SDK encrypts the file locally, then uploads the ciphertext.
+
+#### Local Storage
+Store files on the server's local filesystem:
+
+```typescript
+import { LocalStorageProvider } from 'chatly-sdk';
+
+const storage = new LocalStorageProvider('./uploads');
+const sdk = new ChatSDK({ storageProvider: storage, ... });
+```
+
+#### AWS S3 Storage
+Store files in an S3 bucket:
+
+```typescript
+import { S3StorageProvider } from 'chatly-sdk';
+
+const storage = new S3StorageProvider({
+  region: 'us-east-1',
+  bucket: 'my-chat-app-media',
+  credentials: {
+    accessKeyId: '...',
+    secretAccessKey: '...'
+  }
+});
+const sdk = new ChatSDK({ storageProvider: storage, ... });
+```
+
 ### Media Encryption
 
 All media files are **fully encrypted end-to-end**:
 
-1. **File data** is encrypted with the session/group key
-2. **Metadata** (filename, size, etc.) is stored in plaintext for efficiency
-3. **Thumbnails** (for images/videos) are encrypted
-4. **No URL-based approach** - all files sent directly through SDK
+1. **Double Encryption**: File data and captions are encrypted separately with unique IVs.
+2. **Offloading**: Encrypted data is sent to the `StorageProvider`, leaving only a small reference in the database.
+3. **Automatic Management**: The SDK automatically downloads and decrypts media when needed.
+4. **Cleanup**: Deleting a message automatically triggers deletion of the remote file.
 
 ```typescript
-// Media encryption happens automatically
-const media = await createMediaAttachment(file);
-const message = await sdk.sendMediaMessage(session, caption, media);
-
-// Message contains:
-// - Encrypted caption (ciphertext)
-// - Encrypted media data (media.data)
-// - Plaintext metadata (media.metadata)
+// Message in database now looks like this:
+{
+  "id": "msg_123",
+  "type": "media",
+  "media": {
+    "storage": "s3",
+    "storageKey": "session_id/unique-file-name.jpg",
+    "iv": "media_specific_iv",
+    "data": undefined, // Raw data is removed from DB
+    "metadata": { ... }
+  }
+}
 ```
 
 ### Example: Sending an Image

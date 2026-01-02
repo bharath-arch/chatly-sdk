@@ -5,11 +5,12 @@ import { deriveGroupKey } from "../crypto/group.js";
 import { encryptMessage, decryptMessage } from "../crypto/e2e.js";
 import { base64ToBuffer } from "../crypto/utils.js";
 import { generateUUID } from "../crypto/uuid.js";
+import type { StorageProvider } from "../storage/adapters.js";
 
 export class GroupSession {
   private groupKey: Buffer | null = null;
 
-  constructor(public readonly group: Group) {}
+  constructor(public readonly group: Group, private storageProvider?: StorageProvider) {}
 
   /**
    * Initialize the session by deriving the group key
@@ -63,9 +64,9 @@ export class GroupSession {
     // Encrypt the message text (could be caption)
     const { ciphertext, iv } = encryptMessage(plaintext, this.groupKey);
 
-    // Encrypt the media data
-    const { ciphertext: encryptedMediaData } = encryptMessage(
-      media.data,
+    // Encrypt the media data with its own IV
+    const { ciphertext: encryptedMediaData, iv: mediaIv } = encryptMessage(
+      media.data || "",
       this.groupKey
     );
 
@@ -73,7 +74,23 @@ export class GroupSession {
     const encryptedMedia: MediaAttachment = {
       ...media,
       data: encryptedMediaData,
+      iv: mediaIv,
     };
+
+    // If storage provider is available, upload the encrypted data
+    if (this.storageProvider) {
+      const filename = `groups/${this.group.id}/${generateUUID()}-${media.metadata.filename}`;
+      const uploadResult = await this.storageProvider.upload(
+        encryptedMediaData,
+        filename,
+        media.metadata.mimeType
+      );
+      
+      encryptedMedia.storage = this.storageProvider.name as 'local' | 's3';
+      encryptedMedia.storageKey = uploadResult.storageKey;
+      encryptedMedia.url = uploadResult.url;
+      encryptedMedia.data = undefined; // Remove data from attachment if stored remotely
+    }
 
     return {
       id: generateUUID(),
@@ -121,10 +138,21 @@ export class GroupSession {
     // Decrypt the message text
     const text = decryptMessage(message.ciphertext, message.iv, this.groupKey);
 
-    // Decrypt the media data
+    let encryptedMediaData = message.media.data;
+
+    // If data is missing but storageKey is present, download it
+    if (!encryptedMediaData && message.media.storageKey && this.storageProvider) {
+      encryptedMediaData = await this.storageProvider.download(message.media.storageKey);
+    }
+
+    // Decrypt the media data using its own IV
+    if (!message.media.iv && !encryptedMediaData) {
+        throw new Error("Media data or IV missing");
+    }
+
     const decryptedMediaData = decryptMessage(
-      message.media.data,
-      message.iv,
+      encryptedMediaData || "",
+      message.media.iv || message.iv, // Fallback to message IV for backward compatibility
       this.groupKey
     );
 

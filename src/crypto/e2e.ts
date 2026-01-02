@@ -34,6 +34,15 @@
   }
 
   /**
+   * Legacy secret derivation without salt (for backward compatibility)
+   */
+  export function deriveLegacySharedSecret(local: KeyPair, remotePublicKey: string): Buffer {
+    const ecdh = createECDH(SUPPORTED_CURVE);
+    ecdh.setPrivateKey(base64ToBuffer(local.privateKey));
+    return ecdh.computeSecret(base64ToBuffer(remotePublicKey));
+  }
+
+  /**
    * Encrypt a message using AES-GCM
    */
   export function encryptMessage(plaintext: string, secret: Buffer): { ciphertext: string; iv: string } {

@@ -9,6 +9,8 @@ function bufferToBase64(buffer) {
   return buffer.toString("base64");
 }
 function base64ToBuffer(data) {
+  if (Buffer.isBuffer(data)) return data;
+  if (!data) return Buffer.alloc(0);
   return Buffer.from(data, "base64");
 }
 
@@ -44,6 +46,11 @@ function deriveSharedSecret(local, remotePublicKey) {
   const salt = hash.slice(0, SALT_LENGTH);
   const derivedKey = pbkdf2Sync(sharedSecret, salt, PBKDF2_ITERATIONS, KEY_LENGTH, "sha256");
   return derivedKey;
+}
+function deriveLegacySharedSecret(local, remotePublicKey) {
+  const ecdh = createECDH2(SUPPORTED_CURVE);
+  ecdh.setPrivateKey(base64ToBuffer(local.privateKey));
+  return ecdh.computeSecret(base64ToBuffer(remotePublicKey));
 }
 function encryptMessage(plaintext, secret) {
   const iv = randomBytes2(IV_LENGTH);
@@ -94,243 +101,6 @@ function generateUUID() {
     return v.toString(16);
   });
 }
-
-// src/chat/ChatSession.ts
-var ChatSession = class {
-  constructor(id, userA, userB) {
-    this.id = id;
-    this.userA = userA;
-    this.userB = userB;
-  }
-  sharedSecret = null;
-  ephemeralKeyPair = null;
-  /**
-   * Initialize the session by deriving the shared secret
-   * ECDH is commutative, so we can use either user's keys
-   */
-  async initialize() {
-    const localKeyPair = {
-      publicKey: this.userA.publicKey,
-      privateKey: this.userA.privateKey
-    };
-    this.sharedSecret = deriveSharedSecret(localKeyPair, this.userB.publicKey);
-  }
-  /**
-   * Initialize from a specific user's perspective (useful when decrypting)
-   */
-  async initializeForUser(user) {
-    const otherUser = user.id === this.userA.id ? this.userB : this.userA;
-    const localKeyPair = {
-      publicKey: user.publicKey,
-      privateKey: user.privateKey
-    };
-    this.sharedSecret = deriveSharedSecret(localKeyPair, otherUser.publicKey);
-  }
-  /**
-   * Encrypt a message for this session
-   */
-  async encrypt(plaintext, senderId) {
-    if (!this.sharedSecret) {
-      await this.initialize();
-    }
-    if (!this.sharedSecret) {
-      throw new Error("Failed to initialize session");
-    }
-    const { ciphertext, iv } = encryptMessage(plaintext, this.sharedSecret);
-    return {
-      id: generateUUID(),
-      senderId,
-      receiverId: senderId === this.userA.id ? this.userB.id : this.userA.id,
-      ciphertext,
-      iv,
-      timestamp: Date.now(),
-      type: "text"
-    };
-  }
-  /**
-   * Encrypt a media message for this session
-   */
-  async encryptMedia(plaintext, media, senderId) {
-    if (!this.sharedSecret) {
-      await this.initialize();
-    }
-    if (!this.sharedSecret) {
-      throw new Error("Failed to initialize session");
-    }
-    const { ciphertext, iv } = encryptMessage(plaintext, this.sharedSecret);
-    const { ciphertext: encryptedMediaData } = encryptMessage(
-      media.data,
-      this.sharedSecret
-    );
-    const encryptedMedia = {
-      ...media,
-      data: encryptedMediaData
-    };
-    return {
-      id: generateUUID(),
-      senderId,
-      receiverId: senderId === this.userA.id ? this.userB.id : this.userA.id,
-      ciphertext,
-      iv,
-      timestamp: Date.now(),
-      type: "media",
-      media: encryptedMedia
-    };
-  }
-  /**
-   * Decrypt a message in this session
-   */
-  async decrypt(message, user) {
-    if (!this.sharedSecret || user.id !== this.userA.id && user.id !== this.userB.id) {
-      await this.initializeForUser(user);
-    }
-    if (!this.sharedSecret) {
-      throw new Error("Failed to initialize session");
-    }
-    return decryptMessage(message.ciphertext, message.iv, this.sharedSecret);
-  }
-  /**
-   * Decrypt a media message in this session
-   */
-  async decryptMedia(message, user) {
-    if (!message.media) {
-      throw new Error("Message does not contain media");
-    }
-    if (!this.sharedSecret || user.id !== this.userA.id && user.id !== this.userB.id) {
-      await this.initializeForUser(user);
-    }
-    if (!this.sharedSecret) {
-      throw new Error("Failed to initialize session");
-    }
-    const text = decryptMessage(message.ciphertext, message.iv, this.sharedSecret);
-    const decryptedMediaData = decryptMessage(
-      message.media.data,
-      message.iv,
-      this.sharedSecret
-    );
-    const decryptedMedia = {
-      ...message.media,
-      data: decryptedMediaData
-    };
-    return { text, media: decryptedMedia };
-  }
-};
-
-// src/crypto/group.ts
-import { pbkdf2Sync as pbkdf2Sync2 } from "crypto";
-var KEY_LENGTH2 = 32;
-var PBKDF2_ITERATIONS2 = 1e5;
-function deriveGroupKey(groupId) {
-  const salt = Buffer.from(groupId, "utf8");
-  const key = pbkdf2Sync2(groupId, salt, PBKDF2_ITERATIONS2, KEY_LENGTH2, "sha256");
-  return {
-    groupId,
-    key: bufferToBase64(key)
-  };
-}
-
-// src/chat/GroupSession.ts
-var GroupSession = class {
-  constructor(group) {
-    this.group = group;
-  }
-  groupKey = null;
-  /**
-   * Initialize the session by deriving the group key
-   */
-  async initialize() {
-    const groupKeyData = deriveGroupKey(this.group.id);
-    this.groupKey = base64ToBuffer(groupKeyData.key);
-  }
-  /**
-   * Encrypt a message for this group
-   */
-  async encrypt(plaintext, senderId) {
-    if (!this.groupKey) {
-      await this.initialize();
-    }
-    if (!this.groupKey) {
-      throw new Error("Failed to initialize group session");
-    }
-    const { ciphertext, iv } = encryptMessage(plaintext, this.groupKey);
-    return {
-      id: generateUUID(),
-      senderId,
-      groupId: this.group.id,
-      ciphertext,
-      iv,
-      timestamp: Date.now(),
-      type: "text"
-    };
-  }
-  /**
-   * Encrypt a media message for this group
-   */
-  async encryptMedia(plaintext, media, senderId) {
-    if (!this.groupKey) {
-      await this.initialize();
-    }
-    if (!this.groupKey) {
-      throw new Error("Failed to initialize group session");
-    }
-    const { ciphertext, iv } = encryptMessage(plaintext, this.groupKey);
-    const { ciphertext: encryptedMediaData } = encryptMessage(
-      media.data,
-      this.groupKey
-    );
-    const encryptedMedia = {
-      ...media,
-      data: encryptedMediaData
-    };
-    return {
-      id: generateUUID(),
-      senderId,
-      groupId: this.group.id,
-      ciphertext,
-      iv,
-      timestamp: Date.now(),
-      type: "media",
-      media: encryptedMedia
-    };
-  }
-  /**
-   * Decrypt a message in this group
-   */
-  async decrypt(message) {
-    if (!this.groupKey) {
-      await this.initialize();
-    }
-    if (!this.groupKey) {
-      throw new Error("Failed to initialize group session");
-    }
-    return decryptMessage(message.ciphertext, message.iv, this.groupKey);
-  }
-  /**
-   * Decrypt a media message in this group
-   */
-  async decryptMedia(message) {
-    if (!message.media) {
-      throw new Error("Message does not contain media");
-    }
-    if (!this.groupKey) {
-      await this.initialize();
-    }
-    if (!this.groupKey) {
-      throw new Error("Failed to initialize group session");
-    }
-    const text = decryptMessage(message.ciphertext, message.iv, this.groupKey);
-    const decryptedMediaData = decryptMessage(
-      message.media.data,
-      message.iv,
-      this.groupKey
-    );
-    const decryptedMedia = {
-      ...message.media,
-      data: decryptedMediaData
-    };
-    return { text, media: decryptedMedia };
-  }
-};
 
 // src/utils/logger.ts
 var LogLevel = /* @__PURE__ */ ((LogLevel3) => {
@@ -396,6 +166,328 @@ var Logger = class {
   }
 };
 var logger = new Logger();
+
+// src/chat/ChatSession.ts
+var ChatSession = class {
+  constructor(id, userA, userB, storageProvider) {
+    this.id = id;
+    this.userA = userA;
+    this.userB = userB;
+    this.storageProvider = storageProvider;
+  }
+  sharedSecret = null;
+  ephemeralKeyPair = null;
+  /**
+   * Initialize the session by deriving the shared secret
+   * ECDH is commutative, so we can use either user's keys
+   */
+  async initialize() {
+    const localKeyPair = {
+      publicKey: this.userA.publicKey,
+      privateKey: this.userA.privateKey
+    };
+    this.sharedSecret = deriveSharedSecret(localKeyPair, this.userB.publicKey);
+  }
+  /**
+   * Initialize from a specific user's perspective (useful when decrypting)
+   */
+  async initializeForUser(user) {
+    const otherUser = user.id === this.userA.id ? this.userB : this.userA;
+    const localKeyPair = {
+      publicKey: user.publicKey,
+      privateKey: user.privateKey
+    };
+    logger.debug(`[ChatSession] Initializing for user ${user.id}`, {
+      hasLocalPriv: !!user.privateKey,
+      privType: typeof user.privateKey,
+      hasRemotePub: !!otherUser.publicKey,
+      pubType: typeof otherUser.publicKey
+    });
+    this.sharedSecret = deriveSharedSecret(localKeyPair, otherUser.publicKey);
+  }
+  /**
+   * Encrypt a message for this session
+   */
+  async encrypt(plaintext, senderId) {
+    if (!this.sharedSecret) {
+      await this.initialize();
+    }
+    if (!this.sharedSecret) {
+      throw new Error("Failed to initialize session");
+    }
+    const { ciphertext, iv } = encryptMessage(plaintext, this.sharedSecret);
+    return {
+      id: generateUUID(),
+      senderId,
+      receiverId: senderId === this.userA.id ? this.userB.id : this.userA.id,
+      ciphertext,
+      iv,
+      timestamp: Date.now(),
+      type: "text"
+    };
+  }
+  /**
+   * Encrypt a media message for this session
+   */
+  async encryptMedia(plaintext, media, senderId) {
+    if (!this.sharedSecret) {
+      await this.initialize();
+    }
+    if (!this.sharedSecret) {
+      throw new Error("Failed to initialize session");
+    }
+    const { ciphertext, iv } = encryptMessage(plaintext, this.sharedSecret);
+    const { ciphertext: encryptedMediaData, iv: mediaIv } = encryptMessage(
+      media.data || "",
+      this.sharedSecret
+    );
+    const encryptedMedia = {
+      ...media,
+      data: encryptedMediaData,
+      iv: mediaIv
+    };
+    if (this.storageProvider) {
+      const filename = `${this.id}/${generateUUID()}-${media.metadata.filename}`;
+      const uploadResult = await this.storageProvider.upload(
+        encryptedMediaData,
+        filename,
+        media.metadata.mimeType
+      );
+      encryptedMedia.storage = this.storageProvider.name;
+      encryptedMedia.storageKey = uploadResult.storageKey;
+      encryptedMedia.url = uploadResult.url;
+      encryptedMedia.data = void 0;
+    }
+    return {
+      id: generateUUID(),
+      senderId,
+      receiverId: senderId === this.userA.id ? this.userB.id : this.userA.id,
+      ciphertext,
+      iv,
+      timestamp: Date.now(),
+      type: "media",
+      media: encryptedMedia
+    };
+  }
+  /**
+   * Decrypt a message in this session
+   */
+  async decrypt(message, user) {
+    if (!this.sharedSecret || user.id !== this.userA.id && user.id !== this.userB.id) {
+      await this.initializeForUser(user);
+    }
+    if (!this.sharedSecret) {
+      throw new Error("Failed to initialize session");
+    }
+    try {
+      return decryptMessage(message.ciphertext, message.iv, this.sharedSecret);
+    } catch (error) {
+      const legacySecret = this.deriveLegacySecret(user);
+      try {
+        return decryptMessage(message.ciphertext, message.iv, legacySecret);
+      } catch (innerError) {
+        throw error;
+      }
+    }
+  }
+  deriveLegacySecret(user) {
+    const otherUser = user.id === this.userA.id ? this.userB : this.userA;
+    logger.debug(`[ChatSession] Deriving legacy secret for user ${user.id}`, {
+      hasPriv: !!user.privateKey,
+      privType: typeof user.privateKey,
+      remotePubType: typeof otherUser.publicKey
+    });
+    const localKeyPair = {
+      publicKey: user.publicKey,
+      privateKey: user.privateKey
+    };
+    return deriveLegacySharedSecret(localKeyPair, otherUser.publicKey);
+  }
+  /**
+   * Decrypt a media message in this session
+   */
+  async decryptMedia(message, user) {
+    if (!message.media) {
+      throw new Error("Message does not contain media");
+    }
+    if (!this.sharedSecret || user.id !== this.userA.id && user.id !== this.userB.id) {
+      await this.initializeForUser(user);
+    }
+    if (!this.sharedSecret) {
+      throw new Error("Failed to initialize session");
+    }
+    const text = decryptMessage(message.ciphertext, message.iv, this.sharedSecret);
+    let encryptedMediaData = message.media.data;
+    if (!encryptedMediaData && message.media.storageKey && this.storageProvider) {
+      encryptedMediaData = await this.storageProvider.download(message.media.storageKey);
+    }
+    if (!message.media.iv && !encryptedMediaData) {
+      throw new Error("Media data or IV missing");
+    }
+    let decryptedMediaData;
+    try {
+      decryptedMediaData = decryptMessage(
+        encryptedMediaData || "",
+        message.media.iv || message.iv,
+        this.sharedSecret
+      );
+    } catch (error) {
+      const legacySecret = this.deriveLegacySecret(user);
+      try {
+        decryptedMediaData = decryptMessage(
+          encryptedMediaData || "",
+          message.media.iv || message.iv,
+          legacySecret
+        );
+      } catch (innerError) {
+        throw error;
+      }
+    }
+    const decryptedMedia = {
+      ...message.media,
+      data: decryptedMediaData
+    };
+    return { text, media: decryptedMedia };
+  }
+};
+
+// src/crypto/group.ts
+import { pbkdf2Sync as pbkdf2Sync2 } from "crypto";
+var KEY_LENGTH2 = 32;
+var PBKDF2_ITERATIONS2 = 1e5;
+function deriveGroupKey(groupId) {
+  const salt = Buffer.from(groupId, "utf8");
+  const key = pbkdf2Sync2(groupId, salt, PBKDF2_ITERATIONS2, KEY_LENGTH2, "sha256");
+  return {
+    groupId,
+    key: bufferToBase64(key)
+  };
+}
+
+// src/chat/GroupSession.ts
+var GroupSession = class {
+  constructor(group, storageProvider) {
+    this.group = group;
+    this.storageProvider = storageProvider;
+  }
+  groupKey = null;
+  /**
+   * Initialize the session by deriving the group key
+   */
+  async initialize() {
+    const groupKeyData = deriveGroupKey(this.group.id);
+    this.groupKey = base64ToBuffer(groupKeyData.key);
+  }
+  /**
+   * Encrypt a message for this group
+   */
+  async encrypt(plaintext, senderId) {
+    if (!this.groupKey) {
+      await this.initialize();
+    }
+    if (!this.groupKey) {
+      throw new Error("Failed to initialize group session");
+    }
+    const { ciphertext, iv } = encryptMessage(plaintext, this.groupKey);
+    return {
+      id: generateUUID(),
+      senderId,
+      groupId: this.group.id,
+      ciphertext,
+      iv,
+      timestamp: Date.now(),
+      type: "text"
+    };
+  }
+  /**
+   * Encrypt a media message for this group
+   */
+  async encryptMedia(plaintext, media, senderId) {
+    if (!this.groupKey) {
+      await this.initialize();
+    }
+    if (!this.groupKey) {
+      throw new Error("Failed to initialize group session");
+    }
+    const { ciphertext, iv } = encryptMessage(plaintext, this.groupKey);
+    const { ciphertext: encryptedMediaData, iv: mediaIv } = encryptMessage(
+      media.data || "",
+      this.groupKey
+    );
+    const encryptedMedia = {
+      ...media,
+      data: encryptedMediaData,
+      iv: mediaIv
+    };
+    if (this.storageProvider) {
+      const filename = `groups/${this.group.id}/${generateUUID()}-${media.metadata.filename}`;
+      const uploadResult = await this.storageProvider.upload(
+        encryptedMediaData,
+        filename,
+        media.metadata.mimeType
+      );
+      encryptedMedia.storage = this.storageProvider.name;
+      encryptedMedia.storageKey = uploadResult.storageKey;
+      encryptedMedia.url = uploadResult.url;
+      encryptedMedia.data = void 0;
+    }
+    return {
+      id: generateUUID(),
+      senderId,
+      groupId: this.group.id,
+      ciphertext,
+      iv,
+      timestamp: Date.now(),
+      type: "media",
+      media: encryptedMedia
+    };
+  }
+  /**
+   * Decrypt a message in this group
+   */
+  async decrypt(message) {
+    if (!this.groupKey) {
+      await this.initialize();
+    }
+    if (!this.groupKey) {
+      throw new Error("Failed to initialize group session");
+    }
+    return decryptMessage(message.ciphertext, message.iv, this.groupKey);
+  }
+  /**
+   * Decrypt a media message in this group
+   */
+  async decryptMedia(message) {
+    if (!message.media) {
+      throw new Error("Message does not contain media");
+    }
+    if (!this.groupKey) {
+      await this.initialize();
+    }
+    if (!this.groupKey) {
+      throw new Error("Failed to initialize group session");
+    }
+    const text = decryptMessage(message.ciphertext, message.iv, this.groupKey);
+    let encryptedMediaData = message.media.data;
+    if (!encryptedMediaData && message.media.storageKey && this.storageProvider) {
+      encryptedMediaData = await this.storageProvider.download(message.media.storageKey);
+    }
+    if (!message.media.iv && !encryptedMediaData) {
+      throw new Error("Media data or IV missing");
+    }
+    const decryptedMediaData = decryptMessage(
+      encryptedMediaData || "",
+      message.media.iv || message.iv,
+      // Fallback to message IV for backward compatibility
+      this.groupKey
+    );
+    const decryptedMedia = {
+      ...message.media,
+      data: decryptedMediaData
+    };
+    return { text, media: decryptedMedia };
+  }
+};
 
 // src/utils/errors.ts
 var SDKError = class extends Error {
@@ -719,6 +811,9 @@ var InMemoryMessageStore = class {
     this.messages.push(message);
     return message;
   }
+  async findById(id) {
+    return this.messages.find((msg) => msg.id === id);
+  }
   async listByUser(userId) {
     return this.messages.filter(
       (msg) => msg.senderId === userId || msg.receiverId === userId
@@ -726,6 +821,9 @@ var InMemoryMessageStore = class {
   }
   async listByGroup(groupId) {
     return this.messages.filter((msg) => msg.groupId === groupId);
+  }
+  async delete(id) {
+    this.messages = this.messages.filter((msg) => msg.id !== id);
   }
 };
 
@@ -767,7 +865,7 @@ var InMemoryTransport = class {
     if (this.stateHandler) {
       this.stateHandler(this.connectionState);
     }
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve2) => setTimeout(resolve2, 100));
     this.connectionState = "connected" /* CONNECTED */;
     if (this.stateHandler) {
       this.stateHandler(this.connectionState);
@@ -837,7 +935,7 @@ var WebSocketClient = class {
     }
     this.updateState("connecting" /* CONNECTING */);
     logger.info("Connecting to WebSocket", { url: this.url, userId: this.currentUserId });
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve2, reject) => {
       try {
         const wsUrl = this.currentUserId ? `${this.url}?userId=${this.currentUserId}` : this.url;
         this.ws = new WebSocket(wsUrl);
@@ -855,7 +953,7 @@ var WebSocketClient = class {
           this.updateState("connected" /* CONNECTED */);
           logger.info("WebSocket connected");
           this.startHeartbeat();
-          resolve();
+          resolve2();
         };
         this.ws.onmessage = (event) => {
           try {
@@ -1070,7 +1168,7 @@ var FILE_SIZE_LIMITS = {
 
 // src/utils/mediaUtils.ts
 async function encodeFileToBase64(file) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve2, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
       const result = reader.result;
@@ -1083,7 +1181,7 @@ async function encodeFileToBase64(file) {
         reject(new Error("Failed to extract base64 data"));
         return;
       }
-      resolve(base64);
+      resolve2(base64);
     };
     reader.onerror = () => reject(new Error("Failed to read file"));
     reader.readAsDataURL(file);
@@ -1145,12 +1243,12 @@ async function createMediaMetadata(file, filename) {
   return metadata;
 }
 function getImageDimensions(file) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve2, reject) => {
     const img = new Image();
     const url = URL.createObjectURL(file);
     img.onload = () => {
       URL.revokeObjectURL(url);
-      resolve({ width: img.width, height: img.height });
+      resolve2({ width: img.width, height: img.height });
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
@@ -1160,7 +1258,7 @@ function getImageDimensions(file) {
   });
 }
 async function generateThumbnail(file) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve2, reject) => {
     const img = new Image();
     const url = URL.createObjectURL(file);
     img.onload = () => {
@@ -1194,7 +1292,7 @@ async function generateThumbnail(file) {
         reject(new Error("Failed to generate thumbnail"));
         return;
       }
-      resolve(thumbnail);
+      resolve2(thumbnail);
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
@@ -1219,6 +1317,102 @@ function formatFileSize(bytes) {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
+
+// src/storage/localStorage.ts
+import { promises as fs } from "fs";
+import * as path from "path";
+var LocalStorageProvider = class {
+  name = "local";
+  storageDir;
+  constructor(storageDir = "./storage") {
+    this.storageDir = path.resolve(storageDir);
+    fs.mkdir(this.storageDir, { recursive: true }).catch(() => {
+    });
+  }
+  async upload(data, filename, mimeType) {
+    const buffer = typeof data === "string" ? Buffer.from(data, "base64") : data;
+    const filePath = path.join(this.storageDir, filename);
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(filePath, buffer);
+    return {
+      storageKey: filename,
+      url: `file://${filePath}`
+    };
+  }
+  async download(storageKey) {
+    const filePath = path.join(this.storageDir, storageKey);
+    const buffer = await fs.readFile(filePath);
+    return buffer.toString("base64");
+  }
+  async delete(storageKey) {
+    const filePath = path.join(this.storageDir, storageKey);
+    try {
+      await fs.unlink(filePath);
+    } catch (error) {
+      if (error.code !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
+};
+
+// src/storage/s3Storage.ts
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+var S3StorageProvider = class {
+  name = "s3";
+  client;
+  bucket;
+  constructor(config) {
+    const s3Config = {
+      region: config.region,
+      forcePathStyle: config.forcePathStyle
+    };
+    if (config.credentials) {
+      s3Config.credentials = config.credentials;
+    }
+    if (config.endpoint) {
+      s3Config.endpoint = config.endpoint;
+    }
+    this.client = new S3Client(s3Config);
+    this.bucket = config.bucket;
+  }
+  async upload(data, filename, mimeType) {
+    const body = typeof data === "string" ? Buffer.from(data, "base64") : data;
+    await this.client.send(
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: filename,
+        Body: body,
+        ContentType: mimeType
+      })
+    );
+    return {
+      storageKey: filename,
+      url: `https://${this.bucket}.s3.amazonaws.com/${filename}`
+    };
+  }
+  async download(storageKey) {
+    const response = await this.client.send(
+      new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: storageKey
+      })
+    );
+    if (!response.Body) {
+      throw new Error("S3 download failed: empty body");
+    }
+    const bytes = await response.Body.transformToByteArray();
+    return Buffer.from(bytes).toString("base64");
+  }
+  async delete(storageKey) {
+    await this.client.send(
+      new DeleteObjectCommand({
+        Bucket: this.bucket,
+        Key: storageKey
+      })
+    );
+  }
+};
 
 // src/index.ts
 var ChatSDK = class extends EventEmitter {
@@ -1363,7 +1557,7 @@ var ChatSDK = class extends EventEmitter {
     const ids = [userA.id, userB.id].sort();
     const sessionId = `${ids[0]}-${ids[1]}`;
     try {
-      const session = new ChatSession(sessionId, userA, userB);
+      const session = new ChatSession(sessionId, userA, userB, this.config.storageProvider);
       await session.initialize();
       logger.info("Chat session created", { sessionId, users: [userA.id, userB.id] });
       this.emit(EVENTS.SESSION_CREATED, session);
@@ -1392,7 +1586,7 @@ var ChatSDK = class extends EventEmitter {
     };
     try {
       await this.config.groupStore.create(group);
-      const session = new GroupSession(group);
+      const session = new GroupSession(group, this.config.storageProvider);
       await session.initialize();
       logger.info("Group created", { groupId: group.id, name: group.name, memberCount: members.length });
       this.emit(EVENTS.GROUP_CREATED, session);
@@ -1417,7 +1611,7 @@ var ChatSDK = class extends EventEmitter {
       if (!group) {
         throw new SessionError(`Group not found: ${id}`, { groupId: id });
       }
-      const session = new GroupSession(group);
+      const session = new GroupSession(group, this.config.storageProvider);
       await session.initialize();
       logger.debug("Group loaded", { groupId: id });
       return session;
@@ -1549,7 +1743,7 @@ var ChatSDK = class extends EventEmitter {
         }
         const ids = [user.id, otherUser.id].sort();
         const sessionId = `${ids[0]}-${ids[1]}`;
-        const session = new ChatSession(sessionId, user, otherUser);
+        const session = new ChatSession(sessionId, user, otherUser, this.config.storageProvider);
         await session.initializeForUser(user);
         return await session.decrypt(message, user);
       }
@@ -1573,7 +1767,7 @@ var ChatSDK = class extends EventEmitter {
         if (!group) {
           throw new SessionError(`Group not found: ${message.groupId}`, { groupId: message.groupId });
         }
-        const session = new GroupSession(group);
+        const session = new GroupSession(group, this.config.storageProvider);
         await session.initialize();
         return await session.decryptMedia(message);
       } else {
@@ -1587,7 +1781,7 @@ var ChatSDK = class extends EventEmitter {
         }
         const ids = [user.id, otherUser.id].sort();
         const sessionId = `${ids[0]}-${ids[1]}`;
-        const session = new ChatSession(sessionId, user, otherUser);
+        const session = new ChatSession(sessionId, user, otherUser, this.config.storageProvider);
         await session.initializeForUser(user);
         return await session.decryptMedia(message, user);
       }
@@ -1759,6 +1953,7 @@ export {
   InMemoryTransport,
   InMemoryUserStore,
   KEY_LENGTH3 as KEY_LENGTH,
+  LocalStorageProvider,
   LogLevel,
   Logger,
   MAX_QUEUE_SIZE,
@@ -1772,6 +1967,7 @@ export {
   RECONNECT_BASE_DELAY,
   RECONNECT_MAX_ATTEMPTS,
   RECONNECT_MAX_DELAY,
+  S3StorageProvider,
   SALT_LENGTH2 as SALT_LENGTH,
   SDKError,
   SUPPORTED_CURVE2 as SUPPORTED_CURVE,

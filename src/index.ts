@@ -9,6 +9,7 @@ import type {
   GroupStoreAdapter,
 } from "./stores/adapters.js";
 import type { TransportAdapter } from "./transport/adapters.js";
+import type { StorageProvider } from "./storage/adapters.js";
 import { ChatSession } from "./chat/ChatSession.js";
 import { GroupSession } from "./chat/GroupSession.js";
 import { generateIdentityKeyPair } from "./crypto/keys.js";
@@ -23,6 +24,7 @@ export interface ChatSDKConfig {
   userStore: UserStoreAdapter;
   messageStore: MessageStoreAdapter;
   groupStore: GroupStoreAdapter;
+  storageProvider?: StorageProvider;
   transport?: TransportAdapter;
   logLevel?: LogLevel;
 }
@@ -213,7 +215,7 @@ export class ChatSDK extends EventEmitter {
     const sessionId = `${ids[0]}-${ids[1]}`;
     
     try {
-      const session = new ChatSession(sessionId, userA, userB);
+      const session = new ChatSession(sessionId, userA, userB, this.config.storageProvider);
       await session.initialize();
       logger.info('Chat session created', { sessionId, users: [userA.id, userB.id] });
       this.emit(EVENTS.SESSION_CREATED, session);
@@ -245,7 +247,7 @@ export class ChatSDK extends EventEmitter {
 
     try {
       await this.config.groupStore.create(group);
-      const session = new GroupSession(group);
+      const session = new GroupSession(group, this.config.storageProvider);
       await session.initialize();
       logger.info('Group created', { groupId: group.id, name: group.name, memberCount: members.length });
       this.emit(EVENTS.GROUP_CREATED, session);
@@ -272,7 +274,7 @@ export class ChatSDK extends EventEmitter {
         throw new SessionError(`Group not found: ${id}`, { groupId: id });
       }
 
-      const session = new GroupSession(group);
+      const session = new GroupSession(group, this.config.storageProvider);
       await session.initialize();
       logger.debug('Group loaded', { groupId: id });
       return session;
@@ -437,7 +439,7 @@ export class ChatSDK extends EventEmitter {
         // Create consistent session ID
         const ids = [user.id, otherUser.id].sort();
         const sessionId = `${ids[0]}-${ids[1]}`;
-        const session = new ChatSession(sessionId, user, otherUser);
+        const session = new ChatSession(sessionId, user, otherUser, this.config.storageProvider);
         await session.initializeForUser(user);
         return await session.decrypt(message, user);
       }
@@ -467,7 +469,7 @@ export class ChatSDK extends EventEmitter {
         if (!group) {
           throw new SessionError(`Group not found: ${message.groupId}`, { groupId: message.groupId });
         }
-        const session = new GroupSession(group);
+        const session = new GroupSession(group, this.config.storageProvider);
         await session.initialize();
         return await session.decryptMedia(message);
       } else {
@@ -486,7 +488,7 @@ export class ChatSDK extends EventEmitter {
         // Create consistent session ID
         const ids = [user.id, otherUser.id].sort();
         const sessionId = `${ids[0]}-${ids[1]}`;
-        const session = new ChatSession(sessionId, user, otherUser);
+        const session = new ChatSession(sessionId, user, otherUser, this.config.storageProvider);
         await session.initializeForUser(user);
         return await session.decryptMedia(message, user);
       }
@@ -671,4 +673,7 @@ export * from "./utils/errors.js";
 export * from "./utils/logger.js";
 export * from "./utils/validation.js";
 export * from "./utils/mediaUtils.js";
+export * from "./storage/adapters.js";
+export * from "./storage/localStorage.js";
+export * from "./storage/s3Storage.js";
 export * from "./constants.js";
