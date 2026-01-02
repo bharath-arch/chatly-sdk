@@ -2,6 +2,9 @@
 
 Beta end-to-end encrypted chat SDK with WhatsApp-style features, event-driven architecture, and automatic reconnection.
 
+You can find the sample project repository here: [Chatly SDK Sample Project](https://github.com/bharath-arch/chatly-sdk-demo.git)
+
+
 [![npm version](https://img.shields.io/npm/v/chatly-sdk.svg)](https://www.npmjs.com/package/chatly-sdk)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
